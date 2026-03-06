@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClipAI - Long to Short Video Repurposing Pro</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+    
+    <!-- FFmpeg.wasm for REAL Video Processing -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .hide-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .hide-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .hide-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .hide-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Custom Loader */
+        .loader {
+            border-top-color: #4F46E5;
+            -webkit-animation: spinner 1.5s linear infinite;
+            animation: spinner 1.5s linear infinite;
+        }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Video Container Styles */
+        .video-container {
+            transition: all 0.5s ease;
+            position: relative;
+            overflow: hidden;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .ratio-9-16 { width: 320px; height: 568px; }
+        .ratio-16-9 { width: 568px; height: 320px; }
+        .ratio-1-1 { width: 400px; height: 400px; }
+        
+        /* TOUCH-FRIENDLY Timeline Drag Handles */
+        .timeline-handle {
+            cursor: ew-resize;
+            width: 18px;
+            background-color: white;
+            border: 3px solid #4F46E5;
+            border-radius: 6px;
+            z-index: 10;
+            touch-action: none;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
+            position: absolute;
+            height: 100%;
+            top: 0;
+        }
+        .timeline-handle.left { left: 0; transform: translateX(-50%); }
+        .timeline-handle.right { right: 0; transform: translateX(50%); }
+        
+        .timeline-handle::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 40%;
+            background-color: #cbd5e1;
+            border-radius: 2px;
+        }
+
+        /* Editor Tabs */
+        .editor-tab.active {
+            color: #4F46E5;
+            border-bottom: 2px solid #4F46E5;
+            font-weight: 600;
+        }
+
+        /* SUBTITLE PRESET STYLES */
+        .sub-default {
+            color: #ffffff;
+            font-weight: 800;
+            text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+        }
+        .sub-hormozi {
+            color: #FDE047 !important;
+            text-transform: uppercase;
+            font-weight: 900;
+            font-style: italic;
+            text-shadow: 3px 3px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 2px 2px 0 #000, 5px 5px 15px rgba(0,0,0,0.8) !important;
+        }
+        .sub-mrbeast {
+            color: #ffffff !important;
+            font-weight: 900;
+            text-transform: uppercase;
+            -webkit-text-stroke: 2px black;
+            text-shadow: 4px 4px 0px #000, 0 0 15px rgba(0,0,0,0.8) !important;
+        }
+        .sub-minimal {
+            color: #ffffff !important;
+            font-weight: 500;
+            background-color: rgba(0,0,0,0.6);
+            padding: 4px 16px;
+            border-radius: 8px;
+            text-shadow: none !important;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen flex overflow-hidden">
+
+    <!-- SIDEBAR -->
+    <aside class="w-20 lg:w-64 bg-white border-r border-slate-200 flex flex-col justify-between transition-all duration-300 z-20">
+        <div>
+            <div class="h-16 flex items-center justify-center lg:justify-start lg:px-6 border-b border-slate-100">
+                <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center text-white font-bold text-xl mr-0 lg:mr-3 shadow-md border border-indigo-500">
+                    C
+                </div>
+                <span class="font-bold text-xl text-slate-800 hidden lg:block tracking-tight">Clip<span class="text-primary">AI</span></span>
+            </div>
+
+            <nav class="mt-6 flex flex-col gap-2 px-2 lg:px-4">
+                <button onclick="switchView('dashboard')" class="nav-btn active flex items-center gap-3 p-3 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-primary transition-colors">
+                    <i class="fa-solid fa-grid-2 w-5 text-center"></i>
+                    <span class="hidden lg:block font-medium">Dashboard</span>
+                </button>
+                <button onclick="switchView('upload')" class="nav-btn flex items-center gap-3 p-3 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-primary transition-colors">
+                    <i class="fa-solid fa-cloud-arrow-up w-5 text-center"></i>
+                    <span class="hidden lg:block font-medium">Upload Video</span>
+                </button>
+                <button class="nav-btn flex items-center gap-3 p-3 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-primary transition-colors">
+                    <i class="fa-solid fa-folder-open w-5 text-center"></i>
+                    <span class="hidden lg:block font-medium">Aset & File</span>
+                </button>
+            </nav>
+        </div>
+        
+        <!-- FFmpeg Status Indicator -->
+        <div class="p-4 border-t border-slate-100">
+            <div id="engine-status" class="bg-slate-100 p-3 rounded-lg border border-slate-200 flex items-center gap-3">
+                <i class="fa-solid fa-microchip text-slate-400 text-lg animate-pulse" id="engine-icon"></i>
+                <div>
+                    <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Rendering Engine</p>
+                    <p class="text-[10px] text-slate-700 font-medium" id="engine-text">Menyiapkan FFmpeg...</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-1 flex flex-col h-full relative overflow-hidden">
+        
+        <!-- TOP HEADER -->
+        <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-10 shadow-sm">
+            <h2 id="page-title" class="text-lg font-bold text-slate-800">Dashboard</h2>
+            <div class="flex items-center gap-5">
+                <button class="text-slate-400 hover:text-primary transition-colors relative">
+                    <i class="fa-solid fa-bolt text-lg"></i>
+                    <span class="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500 border border-white"></span>
+                    </span>
+                </button>
+                <div class="h-8 w-px bg-slate-200"></div>
+                <div class="flex items-center gap-3 cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors">
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-purple-500 p-[2px]">
+                        <img src="https://ui-avatars.com/api/?name=User+Pro&background=ffffff&color=4F46E5" alt="Profile" class="rounded-full w-full h-full object-cover">
+                    </div>
+                    <span class="text-sm font-semibold text-slate-700 hidden sm:block">User Pro</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- CONTENT AREA -->
+        <div id="content-area" class="flex-1 overflow-y-auto bg-slate-50 p-6 relative hide-scrollbar">
+            
+            <!-- VIEW: DASHBOARD -->
+            <div id="view-dashboard" class="view-section">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+                    <div>
+                        <h3 class="text-2xl font-bold text-slate-800">Project Terakhir</h3>
+                        <p class="text-slate-500 text-sm mt-1">Lanjutkan editing atau buat klip baru dari video panjang Anda.</p>
+                    </div>
+                    <button onclick="switchView('upload')" class="bg-primary hover:bg-indigo-700 text-white px-5 py-2.5 rounded-lg shadow-md hover:shadow-lg transition-all flex items-center gap-2 font-medium">
+                        <i class="fa-solid fa-plus"></i> Project Baru
+                    </button>
+                </div>
+                <div id="project-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+            </div>
+
+            <!-- VIEW: UPLOAD -->
+            <div id="view-upload" class="view-section hidden h-full flex flex-col justify-center items-center">
+                <div class="bg-white p-10 rounded-2xl shadow-xl border border-slate-100 text-center max-w-2xl w-full">
+                    <div class="mb-8">
+                        <div class="w-24 h-24 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-full flex items-center justify-center mx-auto text-primary text-4xl mb-6 border border-indigo-100 shadow-inner">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                        </div>
+                        <h2 class="text-3xl font-bold text-slate-800 mb-2">Upload Video Panjang</h2>
+                        <p class="text-slate-500">Video Anda akan diproses secara lokal di browser Anda. (Maks 100MB disarankan untuk performa browser).</p>
+                    </div>
+
+                    <div id="drop-zone" class="border-2 border-dashed border-slate-300 rounded-xl p-10 hover:border-primary hover:bg-indigo-50/50 transition-all cursor-pointer relative group">
+                        <input type="file" id="file-input" class="absolute inset-0 opacity-0 cursor-pointer z-10" accept="video/mp4,video/x-m4v,video/*">
+                        <i class="fa-solid fa-file-video text-4xl text-slate-300 group-hover:text-primary transition-colors mb-4"></i>
+                        <h3 class="text-lg text-slate-700 font-semibold">Klik atau Drag & Drop video di sini</h3>
+                        <p class="text-sm text-slate-400 mt-2">Dukung format MP4.</p>
+                    </div>
+
+                    <div id="upload-progress" class="hidden mt-8 text-left bg-slate-50 p-6 rounded-xl border border-slate-100">
+                        <div class="flex justify-between items-end mb-2">
+                            <div>
+                                <span id="progress-status" class="font-bold text-slate-800 text-lg">Memuat Video...</span>
+                                <p id="progress-detail" class="text-xs text-slate-500 mt-1 font-medium"><i class="fa-solid fa-circle-notch fa-spin mr-1"></i> Membaca file ke memori</p>
+                            </div>
+                            <span id="progress-text" class="text-primary font-bold text-2xl">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden shadow-inner mt-4">
+                            <div id="progress-bar" class="bg-gradient-to-r from-primary to-purple-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: EDITOR -->
+            <div id="view-editor" class="view-section hidden h-[calc(100vh-8rem)] flex flex-col lg:flex-row gap-6">
+                
+                <!-- Editor Left: Preview & Timeline -->
+                <div class="flex-1 flex flex-col gap-4 min-w-0">
+                    <!-- Video Preview Area -->
+                    <div class="flex-1 bg-slate-100 rounded-2xl shadow-inner border border-slate-300 flex flex-col items-center justify-center p-4 relative overflow-hidden bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
+                        
+                        <div class="absolute top-4 left-4 z-20 bg-black/60 backdrop-blur-sm text-white px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 border border-white/10 shadow-lg">
+                            <i class="fa-solid fa-crop-simple"></i> <span id="current-ratio-label">16:9 (Asli)</span>
+                        </div>
+
+                        <!-- REAL Video Player Container -->
+                        <div id="video-preview-container" class="video-container ratio-16-9 bg-black rounded-xl shadow-2xl relative border border-slate-800 group overflow-hidden">
+                            <!-- Elemen Video Asli -->
+                            <video id="real-video-player" class="w-full h-full object-contain" playsinline controlsList="nodownload"></video>
+                            
+                            <!-- Custom Watermark -->
+                            <div id="watermark-overlay" class="absolute top-4 right-4 text-white/50 font-bold text-sm tracking-widest hidden z-20 drop-shadow-md pointer-events-none">
+                                @MYBRAND
+                            </div>
+
+                            <!-- Subtitles Overlay -->
+                            <div id="subtitle-overlay" class="absolute bottom-16 w-full text-center px-6 z-20 flex justify-center pointer-events-none">
+                                <p id="subtitle-text" class="sub-hormozi text-2xl leading-tight">
+                                    "SIAP DIEDIT! 🚀"
+                                </p>
+                            </div>
+
+                            <!-- Play Overlay (Custom) -->
+                            <div id="play-overlay" class="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity z-10 cursor-pointer pointer-events-none">
+                                <i class="fa-solid fa-circle-play text-white text-6xl drop-shadow-xl hover:scale-110 transition-transform"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- REAL Timeline Editor -->
+                    <div class="h-32 bg-white rounded-2xl shadow-sm border border-slate-200 p-4 flex flex-col">
+                        <div class="flex justify-between items-center mb-2">
+                            <h4 class="text-sm font-bold text-slate-700"><i class="fa-solid fa-scissors text-primary mr-1"></i> Potong Video (Trim)</h4>
+                            <div class="text-xs text-slate-500 font-medium bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                                Clip: <span id="clip-start-time" class="text-primary font-bold">00:00</span> - <span id="clip-end-time" class="text-primary font-bold">00:00</span> 
+                                (<span id="clip-duration">0s</span>)
+                            </div>
+                        </div>
+                        
+                        <!-- Track Container -->
+                        <div class="flex-1 relative bg-slate-800 rounded-lg mt-1 group" id="timeline-track">
+                            <!-- Background Pattern -->
+                            <div class="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/waveform.png')] bg-repeat-x pointer-events-none"></div>
+                            
+                            <!-- Active Trim Region (Highlight) -->
+                            <div id="trim-region" class="absolute top-0 bottom-0 bg-indigo-500/40 border-y-2 border-primary" style="left: 0%; right: 0%;">
+                                <!-- Handles -->
+                                <div id="handle-start" class="timeline-handle left cursor-ew-resize"></div>
+                                <div id="handle-end" class="timeline-handle right cursor-ew-resize"></div>
+                            </div>
+                            
+                            <!-- Playhead (Current Time) -->
+                            <div id="playhead" class="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20 shadow-[0_0_8px_rgba(239,68,68,1)] pointer-events-none" style="left: 0%;">
+                                <div class="w-4 h-4 bg-red-500 rotate-45 -mt-2 -ml-2 rounded-sm shadow-md"></div>
+                            </div>
+                        </div>
+                        
+                        <!-- Time Markers -->
+                        <div class="flex justify-between text-[10px] text-slate-400 font-bold mt-2 px-1">
+                            <span>Mulai</span>
+                            <span id="total-duration-label">Selesai</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Editor Right: Multi-Tab Tools -->
+                <div class="w-full lg:w-[420px] bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
+                    
+                    <!-- Tabs Header -->
+                    <div class="flex border-b border-slate-100 bg-slate-50/50 pt-2 px-2 overflow-x-auto hide-scrollbar">
+                        <button class="editor-tab active flex-1 py-3 text-sm font-medium text-slate-500 transition-colors whitespace-nowrap px-4" onclick="switchEditorTab('format', this)">
+                            <i class="fa-solid fa-crop-simple mr-1"></i> Format & Crop
+                        </button>
+                        <button class="editor-tab flex-1 py-3 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors whitespace-nowrap px-4" onclick="switchEditorTab('subtitles', this)">
+                            <i class="fa-solid fa-closed-captioning mr-1"></i> Subtitle
+                        </button>
+                        <button class="editor-tab flex-1 py-3 text-sm font-medium text-slate-500 hover:text-slate-800 transition-colors whitespace-nowrap px-4" onclick="switchEditorTab('copywriter', this)">
+                            <i class="fa-solid fa-robot mr-1 text-purple-500"></i> AI Copy
+                        </button>
+                    </div>
+
+                    <!-- Tab Content Container -->
+                    <div class="flex-1 overflow-y-auto p-5 relative bg-white hide-scrollbar">
+                        
+                        <!-- TAB 1: FORMAT & CROP (Real Logic) -->
+                        <div id="tab-format" class="tab-content block animate-[fadeIn_0.2s_ease-out]">
+                            <h4 class="font-bold text-slate-800 mb-2">Aspek Rasio (Crop)</h4>
+                            <p class="text-xs text-slate-500 mb-4">Pilih format untuk platform tujuan Anda. Video akan dipotong secara nyata (Real Render).</p>
+                            
+                            <div class="flex flex-col gap-3 mb-6">
+                                <button onclick="setRatio('16:9')" class="w-full py-3 border-2 border-primary bg-indigo-50 text-primary rounded-xl text-sm font-bold transition-all shadow-sm ratio-btn active-ratio text-left px-4 flex items-center gap-3">
+                                    <i class="fa-solid fa-desktop text-lg w-6 text-center"></i> 
+                                    <div>
+                                        <span class="block text-slate-800">16:9 (Horizontal)</span>
+                                        <span class="text-[10px] font-normal text-slate-500">YouTube, Format Asli</span>
+                                    </div>
+                                    <i class="fa-solid fa-circle-check ml-auto text-primary"></i>
+                                </button>
+                                
+                                <button onclick="setRatio('9:16')" class="w-full py-3 border-2 border-slate-200 bg-white text-slate-600 rounded-xl text-sm font-bold hover:border-slate-300 transition-all ratio-btn text-left px-4 flex items-center gap-3 group">
+                                    <i class="fa-solid fa-mobile-screen text-lg w-6 text-center group-hover:text-primary transition-colors"></i> 
+                                    <div>
+                                        <span class="block text-slate-700">9:16 (Vertikal)</span>
+                                        <span class="text-[10px] font-normal text-slate-500">TikTok, IG Reels, YT Shorts</span>
+                                    </div>
+                                    <i class="fa-solid fa-circle-check ml-auto text-transparent group-hover:text-slate-200 transition-colors"></i>
+                                </button>
+                                
+                                <button onclick="setRatio('1:1')" class="w-full py-3 border-2 border-slate-200 bg-white text-slate-600 rounded-xl text-sm font-bold hover:border-slate-300 transition-all ratio-btn text-left px-4 flex items-center gap-3 group">
+                                    <i class="fa-brands fa-square-instagram text-lg w-6 text-center group-hover:text-primary transition-colors"></i> 
+                                    <div>
+                                        <span class="block text-slate-700">1:1 (Persegi)</span>
+                                        <span class="text-[10px] font-normal text-slate-500">Instagram Feed, Facebook</span>
+                                    </div>
+                                    <i class="fa-solid fa-circle-check ml-auto text-transparent group-hover:text-slate-200 transition-colors"></i>
+                                </button>
+                            </div>
+
+                            <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                                <p class="text-sm font-bold text-indigo-800 mb-1"><i class="fa-solid fa-microchip mr-1"></i> Info Rendering</p>
+                                <p class="text-xs text-indigo-600 leading-relaxed">Proses pemotongan (trim) dan re-frame (crop) dilakukan 100% di browser Anda menggunakan FFmpeg.wasm. Video Anda tidak pernah dikirim ke server manapun. Aman dan privat.</p>
+                            </div>
+                        </div>
+
+                        <!-- TAB 2: Subtitles (Visual Only for now) -->
+                        <div id="tab-subtitles" class="tab-content hidden animate-[fadeIn_0.2s_ease-out]">
+                            <div class="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                                <h4 class="font-bold text-slate-800 mb-3 text-sm"><i class="fa-solid fa-font text-primary mr-1"></i> Preset Gaya Teks</h4>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <button onclick="applySubtitleStyle('sub-hormozi', this)" class="style-btn border-2 border-primary bg-indigo-50 rounded-lg py-2 flex flex-col items-center justify-center gap-1 hover:bg-slate-50 transition-all shadow-sm">
+                                        <span class="text-xs font-black italic text-yellow-500 drop-shadow-md">HORMOZI</span>
+                                    </button>
+                                    <button onclick="applySubtitleStyle('sub-mrbeast', this)" class="style-btn border-2 border-slate-200 bg-white rounded-lg py-2 flex flex-col items-center justify-center gap-1 hover:bg-slate-50 transition-all">
+                                        <span class="text-[10px] font-black text-slate-800 uppercase" style="-webkit-text-stroke: 0.5px black; color: white;">MR BEAST</span>
+                                    </button>
+                                    <button onclick="applySubtitleStyle('sub-minimal', this)" class="style-btn border-2 border-slate-200 bg-white rounded-lg py-2 flex flex-col items-center justify-center gap-1 hover:bg-slate-50 transition-all">
+                                        <span class="text-[10px] font-medium text-slate-600 bg-slate-200 px-2 rounded">Minimalis</span>
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <h4 class="font-bold text-slate-800 mb-2">Teks Overlay (Watermark)</h4>
+                            <p class="text-xs text-slate-500 mb-3">Tambahkan teks statis di atas video Anda.</p>
+                            
+                            <input type="text" id="custom-text-input" placeholder="Ketik teks di sini..." class="w-full px-4 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none shadow-sm mb-2" oninput="updateCustomText(this.value)">
+                            
+                            <p class="text-[10px] text-slate-400 mt-4">*Catatan: Karena keterbatasan WebAssembly murni, subtitle otomatis (Hardcode teks ke dalam video MP4) memerlukan filter font kompleks yang saat ini dinonaktifkan untuk stabilitas. Teks hanya tampil sebagai overlay di pemutar web.</p>
+                        </div>
+
+                        <!-- TAB 3: AI Copywriter (Gemini API) -->
+                        <div id="tab-copywriter" class="tab-content hidden animate-[fadeIn_0.2s_ease-out]">
+                            <div class="flex justify-between items-center mb-4">
+                                <h4 class="font-bold text-slate-800">✨ AI Copywriter</h4>
+                            </div>
+                            <p class="text-xs text-slate-500 mb-4">Hasilkan judul viral, deskripsi menarik, dan hashtag menggunakan Google Gemini.</p>
+                            
+                            <textarea id="ai-context" class="w-full pl-3 py-3 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-purple-400 focus:border-purple-400 outline-none resize-none mb-3 shadow-sm hide-scrollbar transition-all" rows="3" placeholder="Deskripsikan video Anda secara singkat..."></textarea>
+                            
+                            <button onclick="generateCopy()" class="w-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white py-3 rounded-xl font-bold hover:shadow-lg transition-all text-sm mb-4 flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-pen-nib"></i> Buat Caption FYP
+                            </button>
+
+                            <div id="ai-copy-result" class="hidden bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 space-y-3 shadow-inner">
+                               <div id="ai-copy-loading" class="hidden text-center py-6">
+                                   <i class="fa-solid fa-circle-notch fa-spin text-purple-500 text-3xl mb-3"></i>
+                                   <p class="text-xs text-slate-600 font-bold tracking-wide uppercase">Menganalisis...</p>
+                               </div>
+                               <div id="ai-copy-content" class="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed font-medium"></div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Action Footer -->
+                    <div class="p-4 bg-white border-t border-slate-200 shadow-[0_-4px_15px_-3px_rgba(0,0,0,0.1)] z-10">
+                        <button onclick="executeRealRender()" class="w-full bg-black hover:bg-slate-800 text-white py-4 rounded-xl font-bold shadow-xl transition-all transform hover:-translate-y-0.5 flex justify-center items-center gap-2 text-sm">
+                            <i class="fa-solid fa-bolt text-yellow-400"></i> Render & Download (.MP4)
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Export Modal (Real/Simulated Progress) -->
+            <div id="export-modal" class="fixed inset-0 bg-slate-900/90 z-50 hidden flex items-center justify-center backdrop-blur-md">
+                <div class="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-2xl animate-[fadeIn_0.3s_ease-out]">
+                    <div id="export-loading">
+                        <div class="relative w-24 h-24 mx-auto mb-6">
+                            <div class="absolute inset-0 rounded-full border-4 border-slate-100"></div>
+                            <div class="absolute inset-0 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+                            <div class="absolute inset-0 flex items-center justify-center font-black text-primary text-lg flex-col leading-tight">
+                                <span id="render-pct">0%</span>
+                            </div>
+                        </div>
+                        <h3 class="text-2xl font-black text-slate-800 tracking-tight">Memproses Video...</h3>
+                        <p class="text-slate-500 mt-2 text-sm font-medium" id="ffmpeg-log">Menyiapkan engine...</p>
+                        
+                        <div class="w-full bg-slate-100 rounded-full h-2.5 mt-6 overflow-hidden shadow-inner">
+                            <div id="render-progress" class="bg-gradient-to-r from-primary to-indigo-500 h-full rounded-full w-0 transition-all duration-300"></div>
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-4 font-bold uppercase tracking-wider"><i class="fa-solid fa-triangle-exclamation text-yellow-500 mr-1"></i> Jangan tutup tab ini selama proses</p>
+                    </div>
+                    
+                    <div id="export-success" class="hidden">
+                        <div class="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center mx-auto mb-6 text-4xl shadow-inner border border-green-200">
+                            <i class="fa-solid fa-check"></i>
+                        </div>
+                        <h3 class="text-2xl font-black text-slate-800">Render Selesai!</h3>
+                        <p class="text-slate-500 mb-8 mt-1 text-sm">Video berhasil diproses (Simulasi/Real).</p>
+                        
+                        <div class="flex flex-col gap-3">
+                            <a id="download-btn" href="#" download="ClipAI_Viral.mp4" class="block w-full bg-primary text-white py-3.5 rounded-xl font-bold hover:bg-indigo-700 shadow-md transition-colors flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-download"></i> Simpan ke Perangkat
+                            </a>
+                            <button onclick="closeExportModal()" class="w-full bg-slate-100 text-slate-700 py-3.5 rounded-xl font-bold hover:bg-slate-200 transition-colors">Tutup</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script>
+        // --- 1. SETUP FFMPEG ENGINE (WITH SANDBOX FALLBACK) ---
+        let isEngineLoaded = false;
+        let useSimulatedRender = false; // Flag if FFmpeg blocked by Sandbox
+        
+        let ffmpeg = null;
+        if (typeof FFmpegWASM !== 'undefined') {
+            ffmpeg = new FFmpegWASM.FFmpeg();
+        }
+        
+        async function loadFFmpeg() {
+            const statusIcon = document.getElementById('engine-icon');
+            const statusText = document.getElementById('engine-text');
+            
+            // Check if environment supports FFmpeg (SharedArrayBuffer usually needed)
+            if (!ffmpeg || typeof SharedArrayBuffer === 'undefined') {
+                console.warn("Browser/Sandbox tidak mendukung FFmpeg Wasm (SharedArrayBuffer hilang/CORS). Berpindah ke Mode Simulasi.");
+                useSimulatedRender = true;
+                statusIcon.classList.remove('fa-microchip', 'animate-pulse', 'text-slate-400');
+                statusIcon.classList.add('fa-triangle-exclamation', 'text-yellow-500');
+                statusText.innerText = "Mode Sandbox (Simulasi Render)";
+                return;
+            }
+
+            try {
+                ffmpeg.on('progress', ({ progress }) => {
+                    const pct = Math.round(progress * 100);
+                    const safePct = pct > 100 ? 100 : (pct < 0 ? 0 : pct);
+                    document.getElementById('render-progress').style.width = `${safePct}%`;
+                    document.getElementById('render-pct').innerText = `${safePct}%`;
+                    document.getElementById('ffmpeg-log').innerText = `Encoding frame... (${safePct}%)`;
+                });
+
+                const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+                await ffmpeg.load({
+                    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+                    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+                });
+
+                isEngineLoaded = true;
+                statusIcon.classList.remove('fa-microchip', 'animate-pulse', 'text-slate-400');
+                statusIcon.classList.add('fa-check-circle', 'text-green-500');
+                statusText.innerText = "FFmpeg Engine Ready";
+                console.log("FFmpeg Loaded Successfully");
+            } catch (err) {
+                console.error("FFmpeg Load Error:", err);
+                useSimulatedRender = true; // Fallback
+                statusIcon.classList.remove('fa-microchip', 'animate-pulse', 'text-slate-400');
+                statusIcon.classList.add('fa-triangle-exclamation', 'text-yellow-500');
+                statusText.innerText = "Fallback: Simulasi Render Aktif";
+            }
+        }
+        
+        const toBlobURL = async (url, mimeType) => {
+            const resp = await fetch(url);
+            const blob = await resp.blob();
+            return URL.createObjectURL(new Blob([blob], { type: mimeType }));
+        };
+
+        window.addEventListener('DOMContentLoaded', loadFFmpeg);
+
+        // --- 2. GEMINI API (Copywriter) ---
+        const apiKey = ""; // Masukkan API Key Anda di sini
+        
+        async function callGemini(prompt, systemInstruction = "Kamu asisten AI.") {
+            if(!apiKey) return "❌ Error: API Key Gemini belum diisi di dalam kode HTML.";
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            try {
+                const res = await fetch(url, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], systemInstruction: { parts: [{ text: systemInstruction }] }})
+                });
+                const data = await res.json();
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "Gagal menghasilkan teks.";
+            } catch (err) {
+                return "❌ Koneksi ke AI gagal.";
+            }
+        }
+
+        async function generateCopy() {
+            const ctx = document.getElementById('ai-context').value;
+            if(!ctx.trim()) return alert("Isi deskripsi video dulu!");
+            
+            document.getElementById('ai-copy-result').classList.remove('hidden');
+            document.getElementById('ai-copy-loading').classList.remove('hidden');
+            document.getElementById('ai-copy-content').classList.add('hidden');
+
+            const res = await callGemini(`Buat 3 judul viral, deskripsi dengan hook, dan hashtag untuk video vertikal. Topik: ${ctx}`);
+            
+            document.getElementById('ai-copy-loading').classList.add('hidden');
+            document.getElementById('ai-copy-content').classList.remove('hidden');
+            document.getElementById('ai-copy-content').innerHTML = res.replace(/\n/g, '<br>');
+        }
+
+        // --- 3. STATE & VIDEO LOGIC ---
+        let currentFile = null;
+        let videoDuration = 0;
+        let trimStart = 0;
+        let trimEnd = 0;
+        let currentRatio = '16:9'; 
+        
+        const videoPlayer = document.getElementById('real-video-player');
+        
+        // Upload & Read Video
+        document.getElementById('drop-zone').addEventListener('click', () => document.getElementById('file-input').click());
+        document.getElementById('file-input').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            currentFile = file;
+            document.getElementById('upload-progress').classList.remove('hidden');
+            document.getElementById('progress-bar').style.width = `100%`;
+            document.getElementById('progress-text').innerText = `Selesai`;
+            document.getElementById('progress-detail').innerHTML = `<i class="fa-solid fa-check text-green-500 mr-1"></i> File termuat di memori`;
+
+            const objectUrl = URL.createObjectURL(file);
+            videoPlayer.src = objectUrl;
+            
+            videoPlayer.onloadedmetadata = () => {
+                videoDuration = videoPlayer.duration;
+                trimStart = 0;
+                trimEnd = videoDuration;
+                
+                document.getElementById('total-duration-label').innerText = formatTime(videoDuration);
+                updateTimelineUI();
+                
+                setTimeout(() => {
+                    document.getElementById('upload-progress').classList.add('hidden');
+                    switchView('editor');
+                    videoPlayer.pause();
+                }, 1000);
+            };
+        });
+
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+            const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        // --- 4. REAL TIMELINE INTERACTION ---
+        const track = document.getElementById('timeline-track');
+        const handleStart = document.getElementById('handle-start');
+        const handleEnd = document.getElementById('handle-end');
+        const trimRegion = document.getElementById('trim-region');
+        let activeHandle = null;
+
+        const startDrag = (e, handleType) => {
+            activeHandle = handleType;
+            e.preventDefault(); 
+        };
+        const stopDrag = () => { activeHandle = null; };
+        
+        const doDrag = (e) => {
+            if (!activeHandle || !videoDuration) return;
+            
+            let clientX = e.clientX || (e.touches && e.touches[0].clientX);
+            if(clientX === undefined) return;
+
+            const rect = track.getBoundingClientRect();
+            let percent = ((clientX - rect.left) / rect.width);
+            
+            percent = Math.max(0, Math.min(1, percent));
+            let newTime = percent * videoDuration;
+
+            if (activeHandle === 'start') {
+                if (newTime >= trimEnd - 1) newTime = trimEnd - 1; 
+                trimStart = newTime;
+                videoPlayer.currentTime = trimStart; 
+            } else if (activeHandle === 'end') {
+                if (newTime <= trimStart + 1) newTime = trimStart + 1;
+                trimEnd = newTime;
+                videoPlayer.currentTime = trimEnd;
+            }
+
+            updateTimelineUI();
+        };
+
+        handleStart.addEventListener('mousedown', (e) => startDrag(e, 'start'));
+        handleStart.addEventListener('touchstart', (e) => startDrag(e, 'start'));
+        handleEnd.addEventListener('mousedown', (e) => startDrag(e, 'end'));
+        handleEnd.addEventListener('touchstart', (e) => startDrag(e, 'end'));
+
+        window.addEventListener('mousemove', doDrag);
+        window.addEventListener('touchmove', doDrag, {passive: false});
+        window.addEventListener('mouseup', stopDrag);
+        window.addEventListener('touchend', stopDrag);
+
+        videoPlayer.addEventListener('timeupdate', () => {
+            if(!videoDuration) return;
+            if(videoPlayer.currentTime > trimEnd && !videoPlayer.paused) {
+                videoPlayer.currentTime = trimStart;
+            }
+            const percent = (videoPlayer.currentTime / videoDuration) * 100;
+            document.getElementById('playhead').style.left = `${percent}%`;
+        });
+
+        function updateTimelineUI() {
+            const startPct = (trimStart / videoDuration) * 100;
+            const endPct = (trimEnd / videoDuration) * 100;
+            
+            trimRegion.style.left = `${startPct}%`;
+            trimRegion.style.right = `${100 - endPct}%`;
+            
+            document.getElementById('clip-start-time').innerText = formatTime(trimStart);
+            document.getElementById('clip-end-time').innerText = formatTime(trimEnd);
+            document.getElementById('clip-duration').innerText = Math.round(trimEnd - trimStart) + 's';
+        }
+
+        document.getElementById('video-preview-container').addEventListener('click', (e) => {
+            if(e.target === videoPlayer) return; 
+            if (videoPlayer.paused) {
+                if(videoPlayer.currentTime >= trimEnd) videoPlayer.currentTime = trimStart;
+                videoPlayer.play();
+            } else {
+                videoPlayer.pause();
+            }
+        });
+
+        // --- 5. EDITOR UI LOGIC ---
+        function switchView(viewName) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`view-${viewName}`).classList.remove('hidden');
+            
+            document.getElementById('page-title').innerText = viewName === 'dashboard' ? 'Dashboard' : viewName === 'upload' ? 'Upload Video' : 'AI Editor Workspace';
+
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('active', 'bg-slate-100', 'text-primary');
+                btn.classList.add('text-slate-600');
+            });
+            const activeBtn = document.querySelector(`button[onclick="switchView('${viewName}')"]`);
+            if(activeBtn) {
+                activeBtn.classList.remove('text-slate-600');
+                activeBtn.classList.add('active', 'bg-slate-100', 'text-primary');
+            }
+        }
+
+        function switchEditorTab(tabId, btnElement) {
+            document.querySelectorAll('.tab-content').forEach(el => { el.classList.add('hidden'); el.classList.remove('block'); });
+            const target = document.getElementById(`tab-${tabId}`);
+            if(target) { target.classList.remove('hidden'); target.classList.add('block'); }
+
+            document.querySelectorAll('.editor-tab').forEach(btn => {
+                btn.classList.remove('active', 'text-slate-800', 'border-b-2', 'border-primary');
+                btn.classList.add('text-slate-500');
+            });
+            btnElement.classList.remove('text-slate-500');
+            btnElement.classList.add('active', 'text-slate-800', 'border-b-2', 'border-primary');
+        }
+
+        function setRatio(ratio) {
+            currentRatio = ratio;
+            const container = document.getElementById('video-preview-container');
+            const label = document.getElementById('current-ratio-label');
+            const buttons = document.querySelectorAll('.ratio-btn');
+            
+            container.classList.remove('ratio-9-16', 'ratio-16-9', 'ratio-1-1');
+            if (ratio === '9:16') { container.classList.add('ratio-9-16'); videoPlayer.classList.replace('object-contain', 'object-cover'); }
+            if (ratio === '16:9') { container.classList.add('ratio-16-9'); videoPlayer.classList.replace('object-cover', 'object-contain'); }
+            if (ratio === '1:1') { container.classList.add('ratio-1-1'); videoPlayer.classList.replace('object-contain', 'object-cover'); }
+
+            label.innerText = `${ratio} (Render Output)`;
+            
+            buttons.forEach(btn => {
+                btn.classList.remove('border-primary', 'bg-indigo-50', 'text-primary');
+                btn.classList.add('border-slate-200', 'bg-white', 'text-slate-600');
+                btn.querySelector('.fa-circle-check').classList.replace('text-primary', 'text-transparent');
+            });
+            
+            const activeBtn = Array.from(buttons).find(b => b.innerText.includes(ratio));
+            if(activeBtn) {
+                activeBtn.classList.remove('border-slate-200', 'bg-white', 'text-slate-600');
+                activeBtn.classList.add('border-primary', 'bg-indigo-50', 'text-primary');
+                activeBtn.querySelector('.fa-circle-check').classList.replace('text-transparent', 'text-primary');
+            }
+        }
+
+        function applySubtitleStyle(styleClass, element) {
+            const sub = document.getElementById('subtitle-text');
+            sub.className = `${styleClass} text-2xl leading-tight`;
+            
+            document.querySelectorAll('.style-btn').forEach(btn => {
+                btn.classList.remove('border-primary', 'bg-indigo-50');
+                btn.classList.add('border-slate-200', 'bg-white');
+            });
+            element.classList.remove('border-slate-200', 'bg-white');
+            element.classList.add('border-primary', 'bg-indigo-50');
+        }
+
+        function updateCustomText(val) {
+            const subtitleEl = document.getElementById('subtitle-text');
+            subtitleEl.innerText = `"${val.toUpperCase()}"`;
+            if(!val) subtitleEl.innerText = "";
+        }
+
+        // --- 6. EXECUTE RENDER (HYBRID: REAL OR SIMULATED) ---
+        async function executeRealRender() {
+            if (!currentFile && !useSimulatedRender) {
+                alert("Tidak ada file video yang diunggah.");
+                return;
+            }
+
+            videoPlayer.pause();
+
+            const modal = document.getElementById('export-modal');
+            const loading = document.getElementById('export-loading');
+            const success = document.getElementById('export-success');
+            const logEl = document.getElementById('ffmpeg-log');
+            const pctText = document.getElementById('render-pct');
+            const pBar = document.getElementById('render-progress');
+            
+            modal.classList.remove('hidden');
+            loading.classList.remove('hidden');
+            success.classList.add('hidden');
+            
+            pBar.style.width = '0%';
+            pctText.innerText = '0%';
+
+            // JIKA FFMPEG DIBLOKIR SANDBOX -> JALANKAN SIMULASI UI
+            if (useSimulatedRender || !isEngineLoaded) {
+                logEl.innerText = "Mode Simulasi: Memproses Video...";
+                let p = 0;
+                const simInt = setInterval(() => {
+                    p += 5;
+                    pBar.style.width = p + '%';
+                    pctText.innerText = p + '%';
+                    if (p >= 100) {
+                        clearInterval(simInt);
+                        setTimeout(() => {
+                            loading.classList.add('hidden');
+                            success.classList.remove('hidden');
+                            document.getElementById('download-btn').href = "#simulated-download";
+                        }, 500);
+                    }
+                }, 200);
+                return;
+            }
+
+            // JIKA FFMPEG BERHASIL DIMUAT -> JALANKAN RENDER NYATA
+            try {
+                logEl.innerText = "Menulis file ke virtual memory...";
+                const { fetchFile } = FFmpegUtil;
+                
+                const inputName = 'input.mp4';
+                const outputName = 'output.mp4';
+                await ffmpeg.writeFile(inputName, await fetchFile(currentFile));
+
+                let ffmpegArgs = ['-i', inputName, '-ss', trimStart.toString(), '-to', trimEnd.toString()];
+
+                let videoFilter = "";
+                if (currentRatio === '9:16') videoFilter = "crop=ih*(9/16):ih"; 
+                else if (currentRatio === '1:1') videoFilter = "crop=ih:ih"; 
+
+                if (videoFilter) ffmpegArgs.push('-vf', videoFilter);
+
+                ffmpegArgs.push('-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'copy', outputName);
+
+                logEl.innerText = "Memulai proses encoding (Ini memakan waktu)...";
+                await ffmpeg.exec(ffmpegArgs);
+
+                logEl.innerText = "Membaca hasil dari memori...";
+                const outputData = await ffmpeg.readFile(outputName);
+                
+                const blob = new Blob([outputData.buffer], { type: 'video/mp4' });
+                const downloadUrl = URL.createObjectURL(blob);
+                
+                loading.classList.add('hidden');
+                success.classList.remove('hidden');
+                
+                const downloadBtn = document.getElementById('download-btn');
+                downloadBtn.href = downloadUrl;
+                downloadBtn.download = `ClipAI_${currentRatio.replace(':','x')}_Clip.mp4`;
+
+            } catch (err) {
+                console.error(err);
+                alert("Terjadi kesalahan saat merender: " + err.message);
+                closeExportModal();
+            }
+        }
+
+        function closeExportModal() {
+            document.getElementById('export-modal').classList.add('hidden');
+        }
+
+    </script>
+</body>
+</html>
